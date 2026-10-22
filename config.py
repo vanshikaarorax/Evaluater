@@ -1,9 +1,8 @@
 
 """Central configuration for ClassLens AI.
 
-Keep rubric weights and grade thresholds in one place so the UI,
-LLM prompt, and deterministic evaluator use consistent settings.
-Secrets must remain in environment variables.
+Supports local environment variables, .env files, and Streamlit Cloud Secrets.
+Keeps rubric weights and grade thresholds consistent across the application.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass, field
+from typing import Any
 
 try:
     from dotenv import load_dotenv
@@ -20,9 +20,49 @@ except ImportError:
     pass
 
 
-def _truthy(value: str | None) -> bool:
-    """Interpret a boolean environment variable safely."""
-    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+def _read_setting(name: str, default: Any = None) -> Any:
+    """Read a setting from environment variables or Streamlit Secrets.
+
+    Environment variables take precedence, allowing local overrides.
+    """
+    value = os.getenv(name)
+
+    if value is not None:
+        return value
+
+    try:
+        import streamlit as st
+
+        value = st.secrets.get(name, default)
+        return value
+    except Exception:
+        # Streamlit Secrets may be unavailable during local tests.
+        return default
+
+
+def _truthy(value: Any) -> bool:
+    """Interpret a boolean setting safely."""
+    if isinstance(value, bool):
+        return value
+
+    return str(value or "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def _positive_int(name: str, default: int) -> int:
+    """Read and validate a positive integer setting."""
+    value = _read_setting(name, default)
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive.")
+
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -30,15 +70,22 @@ class Settings:
     """Application settings and the initial assessment rubric."""
 
     allow_external_processing: bool = _truthy(
-        os.getenv("ALLOW_EXTERNAL_PROCESSING")
+        _read_setting("ALLOW_EXTERNAL_PROCESSING", False)
     )
-    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "2048"))
-    frame_count: int = int(os.getenv("FRAME_COUNT", "12"))
-    weak_label_mapping: str = os.getenv("WEAK_LABEL_MAPPING", "Poor")
 
-    # These weights must total 100. They determine the overall score,
-    # not the scores assigned by the AI to individual dimensions.
+    openai_model: str = str(
+        _read_setting("OPENAI_MODEL", "gpt-4o-mini")
+    ).strip()
+
+    max_upload_mb: int = _positive_int("MAX_UPLOAD_MB", 2048)
+
+    frame_count: int = _positive_int("FRAME_COUNT", 12)
+
+    weak_label_mapping: str = str(
+        _read_setting("WEAK_LABEL_MAPPING", "Poor")
+    ).strip()
+
+    # These weights determine the overall score, not individual AI scores.
     rubric_weights: dict[str, int] = field(
         default_factory=lambda: {
             "structure_clarity": 25,
@@ -49,9 +96,7 @@ class Settings:
         }
     )
 
-    # Minimum overall score required for each label.
-    # These are provisional thresholds and should be calibrated
-    # against human-reviewed classroom recordings.
+    # Provisional thresholds; calibrate against human-reviewed recordings.
     thresholds: tuple[tuple[int, str], ...] = (
         (85, "Excellent"),
         (70, "Good"),
@@ -65,6 +110,7 @@ SETTINGS = Settings()
 
 def validate_settings(settings: Settings = SETTINGS) -> None:
     """Fail early if the rubric configuration is inconsistent."""
+
     weights = settings.rubric_weights
 
     required_dimensions = {
@@ -97,7 +143,8 @@ def validate_settings(settings: Settings = SETTINGS) -> None:
 
     if not thresholds or thresholds[-1] != (0, "Poor"):
         raise ValueError(
-            "Thresholds must end with (0, 'Poor') so every score has a label."
+            "Thresholds must end with (0, 'Poor') "
+            "so every score has a label."
         )
 
     minimums = [minimum for minimum, _ in thresholds]
@@ -108,10 +155,7 @@ def validate_settings(settings: Settings = SETTINGS) -> None:
     ):
         raise ValueError("Grade thresholds must be integers.")
 
-    if any(
-        not 0 <= minimum <= 100
-        for minimum in minimums
-    ):
+    if any(not 0 <= minimum <= 100 for minimum in minimums):
         raise ValueError("Grade thresholds must be between 0 and 100.")
 
     if any(
@@ -125,14 +169,11 @@ def validate_settings(settings: Settings = SETTINGS) -> None:
     if len({label for _, label in thresholds}) != len(thresholds):
         raise ValueError("Every grade threshold must have a unique label.")
 
-    if settings.max_upload_mb <= 0:
-        raise ValueError("MAX_UPLOAD_MB must be positive.")
-
-    if settings.frame_count <= 0:
-        raise ValueError("FRAME_COUNT must be positive.")
-
-    if not settings.openai_model.strip():
+    if not settings.openai_model:
         raise ValueError("OPENAI_MODEL cannot be empty.")
+
+    if not settings.weak_label_mapping:
+        raise ValueError("WEAK_LABEL_MAPPING cannot be empty.")
 
 
 validate_settings()
