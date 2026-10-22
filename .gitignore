@@ -1,0 +1,24 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+classrecordings/
+recordings/
+temp/
+tmp/
+transcripts/
+extracted_frames/
+# Private derived media and potentially identifiable reports must never be committed.
+*.vtt
+*.wav
+*.mp3
+*.m4a
+*.mp4
+*.flac
+*.jpg
+*.jpeg
+*.png
+reports/
+*.log
