@@ -12,7 +12,10 @@ from config import SETTINGS
 
 def label_for_score(score: float) -> str:
     """Return the configured label for a score between 0 and 100."""
-    numeric_score = float(score)
+    try:
+        numeric_score = float(score)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Score must be numeric.") from exc
 
     if not math.isfinite(numeric_score):
         raise ValueError("Score must be a finite number.")
@@ -24,7 +27,6 @@ def label_for_score(score: float) -> str:
         if numeric_score >= minimum:
             return label
 
-    # Configuration validation guarantees that Poor starts at zero.
     raise RuntimeError("No grade label matched the score.")
 
 
@@ -32,11 +34,10 @@ def deterministic_assessment(
     dimension_scores: Mapping[str, float],
     limitations: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Calculate a weighted overall score without altering dimension scores.
+    """Calculate the weighted overall score without altering dimension scores.
 
-    The result is a weighted mean of the five rubric dimensions.
-    Recording limitations are reported separately and do not automatically
-    increase or decrease the score.
+    Missing evidence and recording limitations are reported separately.
+    They do not automatically increase or decrease the score.
     """
     if not isinstance(dimension_scores, Mapping):
         raise TypeError("Dimension scores must be provided as a mapping.")
@@ -80,8 +81,7 @@ def deterministic_assessment(
 
         validated_scores[name] = value
 
-    # The weights total 100, so dividing each weight by 100
-    # produces the correct weighted mean.
+    # Settings validation ensures the weights total exactly 100.
     weighted_score = sum(
         validated_scores[name] * weights[name] / 100.0
         for name in weights

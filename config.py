@@ -98,10 +98,11 @@ class Settings:
 
     # Provisional thresholds; calibrate against human-reviewed recordings.
     thresholds: tuple[tuple[int, str], ...] = (
-        (85, "Excellent"),
-        (70, "Good"),
-        (60, "Average"),
-        (0, "Poor"),
+        (85, "Excellent"),  # 85–100
+    (70, "Good"),       # 70–84.9
+    (60, "Average"),    # 60–69.9
+    (40, "Weak"),       # 40–59.9
+    (0, "Poor"),        # 0–39.9
     )
 
 
